@@ -363,7 +363,7 @@
   <div class="container">
     <header>
       <h1>Passport Photo Generator</h1>
-      <p class="subtitle">ICAO 9303 Compliant • Studio Background • 300 DPI A4 Sheet</p>
+      <p class="subtitle">ICAO 9303 Compliant • Studio Background • 300 DPI (35×45mm)</p>
     </header>
 
     <div class="card">
@@ -415,19 +415,19 @@
       <div id="loadingSection" class="loading-state">
         <div class="spinner"></div>
         <div>
-          <div class="loading-msg">Processing 12-step pipeline...</div>
-          <div class="loading-subtext">Aligning, restoring face, equalising lighting & tiling sheet</div>
+          <div class="loading-msg">Processing pipeline...</div>
+          <div class="loading-subtext">Aligning, restoring face, equalising lighting & cropping to ICAO spec</div>
         </div>
       </div>
 
       <!-- Result State -->
       <div id="resultSection" class="result-state">
         <div class="result-preview-wrap">
-          <img id="resultImage" src="" alt="Generated Passport A4 Sheet">
+          <img id="resultImage" src="" alt="Generated Passport Photo">
         </div>
         <div class="actions">
-          <a id="downloadBtn" class="btn-download" href="#" download="passport_a4.jpg">
-            ⬇ Download A4 Print Sheet
+          <a id="downloadBtn" class="btn-download" href="#" download="passport.jpg">
+            ⬇ Download Passport Photo
           </a>
           <button type="button" id="resetBtn" class="btn-reset">
             Process Another
@@ -561,7 +561,7 @@
 
         resultImage.src = objectUrl;
         downloadBtn.href = objectUrl;
-        downloadBtn.download = `passport_a4_${selectedBg}.jpg`;
+        downloadBtn.download = `passport_${selectedBg}.jpg`;
 
         loadingSection.style.display = 'none';
         resultSection.style.display = 'flex';

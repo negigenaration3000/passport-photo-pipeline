@@ -60,7 +60,7 @@ async def process_photo(
         return FileResponse(
             path=output_path,
             media_type="image/jpeg",
-            filename=f"passport_a4_{bg_choice}.jpg",
+            filename=f"passport_{bg_choice}.jpg",
         )
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Pipeline processing failed: {err}")

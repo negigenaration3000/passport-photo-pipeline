@@ -30,7 +30,7 @@ def process(
     bg:          str  = "blue",     # "blue" | "white"
     enhance:     bool = True,       # set False to skip CodeFormer (dev mode)
     fidelity:    float = 0.95,
-    tile_output: bool = True,
+    tile_output: bool = False,
 ) -> dict:
     """
     Full 12-step passport photo pipeline.
