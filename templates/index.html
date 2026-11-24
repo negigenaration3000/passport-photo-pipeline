@@ -14,6 +14,7 @@
       --primary: #3b82f6;
       --primary-hover: #2563eb;
       --blue-accent: #1868b7;
+      --cyan-accent: #00bcd4;
       --success: #10b981;
       --danger: #ef4444;
     }
@@ -74,7 +75,7 @@
     .dropzone {
       border: 2px dashed var(--card-border);
       border-radius: 10px;
-      padding: 2.5rem 1.5rem;
+      padding: 2rem 1.5rem;
       text-align: center;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -98,8 +99,8 @@
     }
 
     .upload-icon {
-      font-size: 2.5rem;
-      margin-bottom: 0.75rem;
+      font-size: 2.2rem;
+      margin-bottom: 0.5rem;
       color: var(--text-muted);
     }
 
@@ -114,6 +115,72 @@
       color: var(--text-muted);
     }
 
+    /* Imgflip-style Paste Box & Divider */
+    .paste-divider {
+      display: flex;
+      align-items: center;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin: -0.25rem 0;
+    }
+
+    .paste-divider::before, .paste-divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .paste-divider span {
+      padding: 0 0.85rem;
+    }
+
+    .paste-box-wrap {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .paste-input {
+      flex: 1;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      color: var(--text);
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .paste-input:focus {
+      border-color: var(--cyan-accent);
+      box-shadow: 0 0 0 2px rgba(0, 188, 212, 0.25);
+    }
+
+    .paste-input::placeholder {
+      color: #64748b;
+    }
+
+    .btn-paste-load {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0 1.25rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-paste-load:hover {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+    }
+
+    /* Selected File Preview */
     .file-preview {
       display: none;
       align-items: center;
@@ -371,13 +438,24 @@
       <div id="errorBox" class="error-msg"></div>
 
       <!-- Upload Form Controls -->
-      <div id="formSection" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div id="formSection" style="display: flex; flex-direction: column; gap: 1.25rem;">
         <!-- Dropzone -->
         <div id="dropzone" class="dropzone">
           <input type="file" id="fileInput" accept="image/*">
           <div class="upload-icon">📷</div>
           <div class="upload-title">Drag & drop your portrait here</div>
           <div class="upload-hint">or click to browse from your device (JPG, PNG)</div>
+        </div>
+
+        <!-- OR Divider -->
+        <div id="pasteDivider" class="paste-divider">
+          <span>OR</span>
+        </div>
+
+        <!-- Paste image or image URL Input -->
+        <div id="pasteWrap" class="paste-box-wrap">
+          <input type="text" id="pasteInput" class="paste-input" placeholder="Paste image (Ctrl+V) or image URL">
+          <button type="button" id="pasteLoadBtn" class="btn-paste-load">Load</button>
         </div>
 
         <!-- Selected File Preview -->
@@ -407,7 +485,7 @@
 
         <!-- Process Button -->
         <button type="button" id="processBtn" class="btn-process" disabled>
-          Generate Passport Photos
+          Generate Passport Photo
         </button>
       </div>
 
@@ -440,6 +518,10 @@
   <script>
     const fileInput = document.getElementById('fileInput');
     const dropzone = document.getElementById('dropzone');
+    const pasteDivider = document.getElementById('pasteDivider');
+    const pasteWrap = document.getElementById('pasteWrap');
+    const pasteInput = document.getElementById('pasteInput');
+    const pasteLoadBtn = document.getElementById('pasteLoadBtn');
     const filePreview = document.getElementById('filePreview');
     const thumbImg = document.getElementById('thumbImg');
     const fileName = document.getElementById('fileName');
@@ -458,7 +540,7 @@
     let selectedFile = null;
     let selectedBg = 'blue';
 
-    // Drag & Drop
+    // ── Drag & Drop ───────────────────────────────────────────────
     ['dragenter', 'dragover'].forEach(eventName => {
       dropzone.addEventListener(eventName, e => {
         e.preventDefault();
@@ -485,9 +567,99 @@
       }
     });
 
+    // ── Clipboard Paste (Ctrl+V) & URL Handling ───────────────────
+    window.addEventListener('paste', async (e) => {
+      // 1. Check if the clipboard contains an image file/blob
+      const items = (e.clipboardData || window.clipboardData).items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type && items[i].type.startsWith('image/')) {
+            const blob = items[i].getAsFile();
+            if (blob) {
+              const file = new File([blob], `pasted_image_${Date.now()}.png`, { type: blob.type });
+              handleFileSelect(file);
+              e.preventDefault();
+              return;
+            }
+          }
+        }
+      }
+
+      // 2. Check if text pasted is an image URL
+      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+      if (pastedText && isImageUrl(pastedText.trim())) {
+        e.preventDefault();
+        pasteInput.value = pastedText.trim();
+        await fetchImageFromUrl(pastedText.trim());
+      }
+    });
+
+    // Handle manual URL submit via button or pressing Enter
+    pasteLoadBtn.addEventListener('click', () => {
+      const url = pasteInput.value.trim();
+      if (url) fetchImageFromUrl(url);
+    });
+
+    pasteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const url = pasteInput.value.trim();
+        if (url) fetchImageFromUrl(url);
+      }
+    });
+
+    function isImageUrl(str) {
+      if (!str) return false;
+      if (str.startsWith('data:image/')) return true;
+      try {
+        const parsed = new URL(str);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function fetchImageFromUrl(url) {
+      hideError();
+      pasteLoadBtn.textContent = 'Loading...';
+      pasteLoadBtn.disabled = true;
+
+      try {
+        let blob;
+        if (url.startsWith('data:image/')) {
+          // Convert data URI to Blob
+          const res = await fetch(url);
+          blob = await res.blob();
+        } else {
+          // Fetch through backend proxy to avoid CORS blocks
+          const proxyUrl = `/fetch-image?url=${encodeURIComponent(url)}`;
+          const res = await fetch(proxyUrl);
+          if (!res.ok) {
+            let errText = 'Failed to download image from URL.';
+            try {
+              const data = await res.json();
+              errText = data.detail || errText;
+            } catch (_) {}
+            throw new Error(errText);
+          }
+          blob = await res.blob();
+        }
+
+        const ext = blob.type.includes('png') ? 'png' : 'jpg';
+        const file = new File([blob], `url_image_${Date.now()}.${ext}`, { type: blob.type || 'image/jpeg' });
+        handleFileSelect(file);
+      } catch (err) {
+        showError(err.message || 'Could not fetch image from the provided URL.');
+      } finally {
+        pasteLoadBtn.textContent = 'Load';
+        pasteLoadBtn.disabled = false;
+      }
+    }
+
+    // ── Handle Selected File ──────────────────────────────────────
     function handleFileSelect(file) {
       if (!file.type.startsWith('image/')) {
-        showError('Please select a valid image file (JPG or PNG).');
+        showError('Please select or paste a valid image file (JPG or PNG).');
         return;
       }
       hideError();
@@ -499,6 +671,8 @@
       reader.onload = ev => {
         thumbImg.src = ev.target.result;
         dropzone.style.display = 'none';
+        pasteDivider.style.display = 'none';
+        pasteWrap.style.display = 'none';
         filePreview.style.display = 'flex';
         processBtn.disabled = false;
       };
@@ -512,13 +686,16 @@
     function clearSelectedFile() {
       selectedFile = null;
       fileInput.value = '';
+      pasteInput.value = '';
       thumbImg.src = '';
       dropzone.style.display = 'block';
+      pasteDivider.style.display = 'flex';
+      pasteWrap.style.display = 'flex';
       filePreview.style.display = 'none';
       processBtn.disabled = true;
     }
 
-    // Background toggle
+    // ── Background Color Toggle ───────────────────────────────────
     toggleOpts.forEach(opt => {
       opt.addEventListener('click', () => {
         toggleOpts.forEach(o => o.classList.remove('selected'));
@@ -527,7 +704,7 @@
       });
     });
 
-    // Process button click
+    // ── Process Photo ─────────────────────────────────────────────
     processBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
 
@@ -572,7 +749,7 @@
       }
     });
 
-    // Reset button
+    // ── Reset to Process Another ──────────────────────────────────
     resetBtn.addEventListener('click', () => {
       resultSection.style.display = 'none';
       formSection.style.display = 'flex';

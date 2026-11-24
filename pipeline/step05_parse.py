@@ -16,9 +16,13 @@ _WEIGHTS_URL = (
     "id=154JgKpzCPW82qINcVieuPH3fZ2e0P812&export=download&confirm=t"
 )
 _WEIGHTS_PATH = Path.home() / ".cache" / "passport_pipeline" / "bisenet" / _WEIGHTS_FILE
+_ONNX_WEIGHTS_FILE = "79999_iter.onnx"
+_ONNX_WEIGHTS_URL = "https://huggingface.co/ykk648/face_lib/resolve/main/face_parsing/79999_iter.onnx"
+_ONNX_WEIGHTS_PATH = Path.home() / ".cache" / "passport_pipeline" / "bisenet" / _ONNX_WEIGHTS_FILE
 _INPUT_SIZE = (512, 512)
 _MODEL = None
 _DEVICE = None
+_SESSION = None
 
 _REGION_LABELS = {
     "background": (0,),
@@ -70,8 +74,46 @@ def _get_model():
         raise RuntimeError(f"BiSeNet model loading failed: {error}") from error
 
 
+def _get_onnx_session():
+    """Load the ONNX model once into an onnxruntime session."""
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
+
+    try:
+        import onnxruntime as ort
+
+        if not _ONNX_WEIGHTS_PATH.is_file():
+            _ONNX_WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = _ONNX_WEIGHTS_PATH.with_suffix(".part")
+            urllib.request.urlretrieve(_ONNX_WEIGHTS_URL, temporary_path)
+            temporary_path.replace(_ONNX_WEIGHTS_PATH)
+
+        _SESSION = ort.InferenceSession(str(_ONNX_WEIGHTS_PATH), providers=["CPUExecutionProvider"])
+        return _SESSION
+    except Exception:
+        return None
+
+
 def _infer_labels(image: Image.Image) -> np.ndarray:
     """Return 512px class labels, resized back to the source dimensions."""
+    # First attempt ONNX Runtime inference (avoids torch DLL issues with Smart App Control)
+    try:
+        session = _get_onnx_session()
+        if session is not None:
+            resized = image.resize(_INPUT_SIZE, Image.Resampling.BILINEAR)
+            pixels = np.asarray(resized, dtype=np.float32) / 255.0
+            normalized = (pixels - (0.485, 0.456, 0.406)) / (0.229, 0.224, 0.225)
+            blob = np.ascontiguousarray(normalized.transpose(2, 0, 1)[np.newaxis, ...], dtype=np.float32)
+            input_name = session.get_inputs()[0].name
+            feat_out = session.run(None, {input_name: blob})[0]
+            labels = feat_out.squeeze(0).argmax(0).astype(np.uint8)
+            return np.asarray(
+                Image.fromarray(labels).resize(image.size, Image.Resampling.NEAREST), dtype=np.uint8
+            )
+    except Exception:
+        pass
+
     try:
         import torch
 
