@@ -18,8 +18,8 @@ from config import settings
 # ICAO 9303 head-to-frame height constraints
 HEAD_MIN_RATIO = 0.70
 HEAD_MAX_RATIO = 0.80
-HEAD_TARGET_RATIO = 0.55   # aim for centre of the compliant range
-EYE_FROM_TOP_RATIO = 0.42  # eyes at 45% from top of frame
+HEAD_TARGET_RATIO = getattr(settings, "HEAD_TARGET_RATIO", 0.50)
+EYE_FROM_TOP_RATIO = getattr(settings, "EYE_FROM_TOP_RATIO", 0.40)
 
 
 def crop(

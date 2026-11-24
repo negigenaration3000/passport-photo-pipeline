@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from pipeline.step01_align import align
+from pipeline.step01_align import _face_center_and_eyes, align
 
 
 class Step01AlignTests(unittest.TestCase):
@@ -55,6 +55,27 @@ class Step01AlignTests(unittest.TestCase):
         self.assertNotEqual(result.tobytes(), self.image.tobytes())
         corners = ((0, 0), (99, 0), (0, 99), (99, 99))
         self.assertIn((255, 255, 255), [result.getpixel(point) for point in corners])
+
+    def test_small_image_upscales_for_detection_only(self):
+        small = Image.new("RGB", (160, 200), (30, 40, 50))
+        seen_sizes = []
+
+        def fake_detector(img):
+            seen_sizes.append(img.size)
+            # Upscaled to 400x500 -> return coords in upscaled space (center 200,250)
+            return (200.0, 250.0), (150.0, 250.0), (250.0, 250.0)
+
+        with patch(
+            "pipeline.step01_align._landmark_face_center_and_eyes",
+            side_effect=fake_detector,
+        ):
+            center, left_eye, right_eye = _face_center_and_eyes(small)
+
+        self.assertEqual(seen_sizes, [(400, 500)])
+        self.assertAlmostEqual(center[0], 80.0)
+        self.assertAlmostEqual(center[1], 100.0)
+        self.assertAlmostEqual(left_eye[0], 60.0)
+        self.assertAlmostEqual(right_eye[0], 100.0)
 
 
 if __name__ == "__main__":

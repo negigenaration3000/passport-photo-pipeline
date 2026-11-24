@@ -5,6 +5,8 @@ FAL_KEY        = os.getenv("FAL_KEY", "")
 DPI            = 300
 PASSPORT_W_PX  = 413
 PASSPORT_H_PX  = 531
+HEAD_TARGET_RATIO  = 0.50  # Balanced framing that stays inside physical photo borders
+EYE_FROM_TOP_RATIO = 0.40  # Eyes at 40% from top for headroom
 TILT_THRESHOLD_DEG = 8.0
 BG_BLUE        = (24, 104, 183)
 BG_WHITE       = (255, 255, 255)
@@ -21,6 +23,8 @@ class _Settings:
     DPI                = DPI
     PASSPORT_W_PX      = PASSPORT_W_PX
     PASSPORT_H_PX      = PASSPORT_H_PX
+    HEAD_TARGET_RATIO  = HEAD_TARGET_RATIO
+    EYE_FROM_TOP_RATIO = EYE_FROM_TOP_RATIO
     TILT_THRESHOLD_DEG = TILT_THRESHOLD_DEG
     BG_BLUE            = BG_BLUE
     BG_WHITE           = BG_WHITE

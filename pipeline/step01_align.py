@@ -11,6 +11,7 @@ from PIL import Image
 
 
 _ROLL_THRESHOLD_DEGREES = 2.0
+_MIN_DETECTION_SHORT_SIDE = 400
 # MediaPipe Face Mesh 468-point topology: 33/133 and 362/263 are the paired
 # corners of the two eye contours, so their midpoints approximate eye centres.
 _LEFT_EYE_CORNERS = (33, 133)
@@ -31,6 +32,7 @@ def _landmark_face_center_and_eyes(
         import mediapipe as mp
         import numpy as np
     except ImportError:
+        print("[step01_align] MediaPipe not installed — falling back to Haar")
         return None
 
     model_path = os.environ.get(
@@ -38,6 +40,7 @@ def _landmark_face_center_and_eyes(
         str(Path(__file__).with_name("face_landmarker.task")),
     )
     if not Path(model_path).is_file():
+        print(f"[step01_align] MediaPipe model not found at {model_path} — falling back to Haar")
         return None
 
     try:
@@ -51,16 +54,21 @@ def _landmark_face_center_and_eyes(
             result = detector.detect(
                 mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(image))
             )
-    except Exception:
+    except Exception as err:
         # Model/runtime errors deliberately fall through to the OpenCV fallback.
+        print(f"[step01_align] MediaPipe error ({err}) — falling back to Haar")
         return None
 
     if not result.face_landmarks:
+        print("[step01_align] MediaPipe: no face detected — falling back to Haar")
         return None
 
     landmarks = result.face_landmarks[0]
     if len(landmarks) < 468:
+        print(f"[step01_align] MediaPipe: insufficient landmarks ({len(landmarks)}) — falling back to Haar")
         return None
+
+    print("[step01_align] MediaPipe: face and eye landmarks detected")
 
     width, height = image.size
 
@@ -103,6 +111,7 @@ def _haar_face_center_and_eyes(
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
     if len(faces) == 0:
+        print("[step01_align] Haar: no face detected")
         return None
 
     # The largest detected face is the intended passport-photo subject.
@@ -110,6 +119,7 @@ def _haar_face_center_and_eyes(
     roi = gray[y : y + height, x : x + width]
     eyes = eye_cascade.detectMultiScale(roi, scaleFactor=1.1, minNeighbors=5)
     if len(eyes) < 2:
+        print(f"[step01_align] Haar: face detected ({width}x{height}), but only {len(eyes)} eye(s) found")
         return None
 
     # Restrict to the upper face to reduce false positives from nostrils/mouth,
@@ -120,19 +130,52 @@ def _haar_face_center_and_eyes(
         if ey + eh / 2.0 < height * 0.65
     ]
     if len(candidates) < 2:
+        print(f"[step01_align] Haar: face detected ({width}x{height}), <2 upper-face eye candidates")
         return None
     left_eye, right_eye = min(candidates, key=lambda p: p[0]), max(candidates, key=lambda p: p[0])
     if left_eye == right_eye:
+        print("[step01_align] Haar: degenerate eye candidates")
         return None
 
+    print("[step01_align] Haar: face and eyes detected")
     return (x + width / 2.0, y + height / 2.0), left_eye, right_eye
 
 
 def _face_center_and_eyes(
     image: Image.Image,
 ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]]:
-    """Prefer 468 MediaPipe landmarks; use Haar only when that path fails."""
-    return _landmark_face_center_and_eyes(image) or _haar_face_center_and_eyes(image)
+    """Prefer 468 MediaPipe landmarks; use Haar only when that path fails.
+
+    Upscale small inputs to at least 400px on the short side for detection only,
+    then scale detected coordinates back to the original image dimensions.
+    """
+    orig_w, orig_h = image.size
+    short_side = min(orig_w, orig_h)
+    if short_side > 0 and short_side < _MIN_DETECTION_SHORT_SIDE:
+        scale = _MIN_DETECTION_SHORT_SIDE / short_side
+        det_w = max(1, round(orig_w * scale))
+        det_h = max(1, round(orig_h * scale))
+        detect_image = image.resize((det_w, det_h), Image.Resampling.BICUBIC)
+        print(f"[step01_align] Upscaled detection copy {orig_w}x{orig_h} -> {det_w}x{det_h}")
+    else:
+        det_w, det_h = orig_w, orig_h
+        detect_image = image
+
+    detected = _landmark_face_center_and_eyes(detect_image) or _haar_face_center_and_eyes(detect_image)
+    if detected is None:
+        return None
+
+    if det_w == orig_w and det_h == orig_h:
+        return detected
+
+    inv_x = orig_w / det_w
+    inv_y = orig_h / det_h
+    face_center, left_eye, right_eye = detected
+    return (
+        (face_center[0] * inv_x, face_center[1] * inv_y),
+        (left_eye[0] * inv_x, left_eye[1] * inv_y),
+        (right_eye[0] * inv_x, right_eye[1] * inv_y),
+    )
 
 
 def align(img: Image.Image) -> Image.Image:
@@ -149,12 +192,14 @@ def align(img: Image.Image) -> Image.Image:
     image = img if img.mode == "RGB" else img.convert("RGB")
     detected = _face_center_and_eyes(image)
     if detected is None:
+        print("[step01_align] NOT detected — skipping alignment")
         return image
 
     face_center, left_eye, right_eye = detected
     dx = right_eye[0] - left_eye[0]
     dy = right_eye[1] - left_eye[1]
     if dx == 0:
+        print("[step01_align] Detected but dx == 0 — tilt=0.00 deg, skipping alignment")
         return image
 
     # atan2 gives the signed eye-line angle in image coordinates (y grows down).
@@ -162,7 +207,16 @@ def align(img: Image.Image) -> Image.Image:
     # downward-sloping left-to-right eye line back to horizontal.
     roll_degrees = math.degrees(math.atan2(dy, dx))
     if abs(roll_degrees) < _ROLL_THRESHOLD_DEGREES:
+        print(
+            f"[step01_align] Detected — measured tilt: {roll_degrees:.2f} deg "
+            f"(below {_ROLL_THRESHOLD_DEGREES:.1f} deg threshold, skipping rotation)"
+        )
         return image
+
+    print(
+        f"[step01_align] Detected — measured tilt: {roll_degrees:.2f} deg "
+        f"(>= {_ROLL_THRESHOLD_DEGREES:.1f} deg, rotating)"
+    )
 
     # ``expand=False`` retains the exact original canvas.  Pixels exposed at
     # corners are filled with white rather than Pillow's default black.
