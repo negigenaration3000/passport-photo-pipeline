@@ -49,7 +49,9 @@ def _studio_enhance_flux(
     bg: str = "blue",
 ) -> Image.Image:
     """
-    Enhance portrait and generate solid studio background using FLUX.1 [pro] Kontext via fal.ai.
+    Enhance portrait, studio lighting, and solid background using high-fidelity
+    image-to-image edit with strict identity preservation (fal.ai nano-banana/edit).
+    Falls back to flux-pro/kontext if nano-banana is unavailable.
     """
     import io
     import requests
@@ -62,29 +64,33 @@ def _studio_enhance_flux(
         else "pristine solid clean studio white background RGB(255, 255, 255)"
     )
     prompt = (
-        "Transform this into an official high-resolution studio passport photo. "
-        "Keep the exact same face identity, facial structure, skin tone, natural eye color, nose stud, jewelry, and clothing or hijab. "
-        f"Clean professional studio lighting, sharp clear details, {bg_desc}, "
+        "An official high-resolution studio passport photo of this exact person. "
+        "Strictly maintain the exact same person, exact age, facial structure, natural skin tone, eye shape, and eye color. "
+        "Faithfully preserve all existing clothing, headwear, jewelry, or piercings exactly as in the photo without adding or removing any features. "
+        f"Clean even professional studio lighting, sharp clear details, {bg_desc}, "
         "perfectly centered, neutral expression."
     )
 
-    res = fal_client.subscribe(
-        "fal-ai/flux-pro/kontext",
-        arguments={
-            "prompt": prompt,
-            "image_url": image_url,
-        },
-        with_logs=True,
-    )
+    endpoints = [
+        ("fal-ai/nano-banana/edit", {"prompt": prompt, "image_urls": [image_url]}),
+        ("fal-ai/flux-pro/kontext", {"prompt": prompt, "image_url": image_url}),
+    ]
 
-    images = res.get("images")
-    if not images or not images[0].get("url"):
-        raise RuntimeError(f"FLUX Kontext failed to return an image: {res}")
+    last_err = None
+    for endpoint, args in endpoints:
+        try:
+            print(f"[orchestrator] Enhancing via {endpoint}...")
+            res = fal_client.subscribe(endpoint, arguments=args, with_logs=False)
+            images = res.get("images")
+            if images and images[0].get("url"):
+                resp = requests.get(images[0]["url"], timeout=45)
+                resp.raise_for_status()
+                return Image.open(io.BytesIO(resp.content)).convert("RGB")
+        except Exception as err:
+            print(f"[orchestrator] Warning: {endpoint} failed ({err}), trying fallback...")
+            last_err = err
 
-    result_url = images[0]["url"]
-    resp = requests.get(result_url, timeout=45)
-    resp.raise_for_status()
-    return Image.open(io.BytesIO(resp.content)).convert("RGB")
+    raise RuntimeError(f"AI studio enhancement failed on all endpoints: {last_err}")
 
 
 def process(
@@ -114,15 +120,15 @@ def process(
     raw = _cap_resolution(Image.open(image_path).convert("RGB"))
 
     # ══════════════════════════════════════════════════════════════
-    # MODE A: AI Studio (FLUX Kontext)
+    # MODE A: AI Studio (High-Fidelity Identity Preservation)
     # ══════════════════════════════════════════════════════════════
     if mode == "studio":
         # ── Step 1: Tilt alignment & detection ────────────────────
         report(15, "[1/4] Aligning portrait & face detection...")
         aligned = align(raw)
 
-        # ── Step 2: FLUX Kontext Studio Enhancement ───────────────
-        report(35, "[2/4] Generating AI Studio portrait (FLUX Kontext)...")
+        # ── Step 2: AI Studio Enhancement ─────────────────────────
+        report(35, "[2/4] Generating AI Studio portrait with identity preservation...")
         studio_img = _studio_enhance_flux(aligned, bg=bg)
 
         # ── Step 3: Face geometry for ICAO crop ───────────────────
@@ -148,7 +154,7 @@ def process(
         if on_progress is not None:
             on_progress(100, "Complete!")
 
-        cost = 0.04  # FLUX.1 Kontext flat rate ($0.04/image)
+        cost = 0.04  # Studio model flat rate (~$0.04/image)
         meta = {
             "output":      str(out),
             "cost_usd":    round(cost, 4),
@@ -160,11 +166,11 @@ def process(
         }
         try:
             print(f"\n✅ Done → {out}")
-            print(f"   Mode: AI Studio (FLUX Kontext)")
+            print(f"   Mode: AI Studio")
             print(f"   Cost: ${meta['cost_usd']} (~৳{meta['cost_bdt']})")
         except UnicodeEncodeError:
             print(f"\n[DONE] -> {out}")
-            print(f"   Mode: AI Studio (FLUX Kontext)")
+            print(f"   Mode: AI Studio")
             print(f"   Cost: ${meta['cost_usd']} (~BDT {meta['cost_bdt']})")
         return meta
 
