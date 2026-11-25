@@ -12,6 +12,7 @@ from typing import Callable, Optional
 from PIL import Image
 
 from config import settings
+from pipeline.face_detect          import analyse
 from pipeline.step01_align         import align
 from pipeline.step02_denoise       import denoise
 from pipeline.step03_matte         import matte
@@ -43,18 +44,64 @@ def _cap_resolution(
     return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
 
+def _studio_enhance_flux(
+    image: Image.Image,
+    bg: str = "blue",
+) -> Image.Image:
+    """
+    Enhance portrait and generate solid studio background using FLUX.1 [pro] Kontext via fal.ai.
+    """
+    import io
+    import requests
+    import fal_client
+
+    image_url = fal_client.upload_image(image)
+    bg_desc = (
+        "pristine solid studio blue background RGB(24, 104, 183)"
+        if bg == "blue"
+        else "pristine solid clean studio white background RGB(255, 255, 255)"
+    )
+    prompt = (
+        "Transform this into an official high-resolution studio passport photo. "
+        "Keep the exact same face identity, facial structure, skin tone, natural eye color, nose stud, jewelry, and clothing or hijab. "
+        f"Clean professional studio lighting, sharp clear details, {bg_desc}, "
+        "perfectly centered, neutral expression."
+    )
+
+    res = fal_client.subscribe(
+        "fal-ai/flux-pro/kontext",
+        arguments={
+            "prompt": prompt,
+            "image_url": image_url,
+        },
+        with_logs=True,
+    )
+
+    images = res.get("images")
+    if not images or not images[0].get("url"):
+        raise RuntimeError(f"FLUX Kontext failed to return an image: {res}")
+
+    result_url = images[0]["url"]
+    resp = requests.get(result_url, timeout=45)
+    resp.raise_for_status()
+    return Image.open(io.BytesIO(resp.content)).convert("RGB")
+
+
 def process(
     image_path:  str | Path,
     output_path: str | Path,
     bg:          str  = "blue",     # "blue" | "white"
-    enhance:     bool = True,       # set False to skip CodeFormer (dev mode)
+    enhance:     bool = True,       # set False to skip CodeFormer in classic mode
     fidelity:    float = 0.95,
     tile_output: bool = False,
     on_progress: Optional[Callable[[int, str], None]] = None,
+    mode:        str  = "studio",   # "studio" (FLUX Kontext) | "classic" (12-step CV)
 ) -> dict:
     """
-    Full 12-step passport photo pipeline.
-    Returns metadata dict: tier, cost estimate, output path.
+    Passport photo pipeline.
+    Modes:
+      - "studio": Next-gen FLUX.1 [pro] Kontext via fal.ai (preserves identity, jewelry, clothing, studio lighting & solid BG).
+      - "classic": 12-step CV pipeline (BiRefNet + CLAHE + CodeFormer).
     """
     def report(pct: int, msg: str) -> None:
         print(msg)
@@ -66,6 +113,64 @@ def process(
     # ── Cap input resolution before pipeline starts ──────────────
     raw = _cap_resolution(Image.open(image_path).convert("RGB"))
 
+    # ══════════════════════════════════════════════════════════════
+    # MODE A: AI Studio (FLUX Kontext)
+    # ══════════════════════════════════════════════════════════════
+    if mode == "studio":
+        # ── Step 1: Tilt alignment & detection ────────────────────
+        report(15, "[1/4] Aligning portrait & face detection...")
+        aligned = align(raw)
+
+        # ── Step 2: FLUX Kontext Studio Enhancement ───────────────
+        report(35, "[2/4] Generating AI Studio portrait (FLUX Kontext)...")
+        studio_img = _studio_enhance_flux(aligned, bg=bg)
+
+        # ── Step 3: Face geometry for ICAO crop ───────────────────
+        report(75, "[3/4] Analysing face geometry for ICAO compliance...")
+        face = analyse(np.array(studio_img))
+        if face is None:
+            # Fallback to analyzing aligned original face if model shifted canvas
+            face = analyse(np.array(aligned))
+        if face is None:
+            raise RuntimeError("Face not detected — cannot crop to ICAO spec.")
+
+        # ── Step 4: ICAO crop ─────────────────────────────────────
+        report(90, "[4/4] Cropping to ICAO spec (35x45mm @ 300 DPI)...")
+        passport = crop(studio_img, matte=None, face=face, bg_color=bg_color)
+
+        if tile_output:
+            report(95, "Tiling on A4...")
+            out = tile(passport, output_path)
+        else:
+            out = Path(output_path)
+            passport.save(out, dpi=(settings.DPI, settings.DPI), quality=97)
+
+        if on_progress is not None:
+            on_progress(100, "Complete!")
+
+        cost = 0.04  # FLUX.1 Kontext flat rate ($0.04/image)
+        meta = {
+            "output":      str(out),
+            "cost_usd":    round(cost, 4),
+            "cost_bdt":    round(cost * 110, 2),
+            "lum_delta":   0.0,
+            "tilt_deg":    getattr(face, "tilt_deg", 0.0),
+            "enhanced":    True,
+            "mode":        "studio",
+        }
+        try:
+            print(f"\n✅ Done → {out}")
+            print(f"   Mode: AI Studio (FLUX Kontext)")
+            print(f"   Cost: ${meta['cost_usd']} (~৳{meta['cost_bdt']})")
+        except UnicodeEncodeError:
+            print(f"\n[DONE] -> {out}")
+            print(f"   Mode: AI Studio (FLUX Kontext)")
+            print(f"   Cost: ${meta['cost_usd']} (~BDT {meta['cost_bdt']})")
+        return meta
+
+    # ══════════════════════════════════════════════════════════════
+    # MODE B: Classic 12-Step Computer Vision Pipeline
+    # ══════════════════════════════════════════════════════════════
     # ── Step 1: Tilt correction ───────────────────────────────────
     report(5, "[1/12] Aligning...")
     aligned = align(raw)
@@ -115,8 +220,6 @@ def process(
     face_analysis = align.__wrapped__(raw) if hasattr(align, "__wrapped__") else None
 
     # Re-run face analysis for crop geometry
-    from pipeline.face_detect import analyse
-    import numpy as np
     face = analyse(np.array(textured))
     if face is None:
         raise RuntimeError("Face not detected — cannot crop to ICAO spec.")
@@ -142,13 +245,16 @@ def process(
         "lum_delta":   lum["delta"],
         "tilt_deg":    getattr(face, "tilt_deg", 0.0),
         "enhanced":    enhance,
+        "mode":        "classic",
     }
 
     try:
         print(f"\n✅ Done → {out}")
+        print(f"   Mode: Classic CV")
         print(f"   Cost: ${meta['cost_usd']} (~৳{meta['cost_bdt']})")
     except UnicodeEncodeError:
         print(f"\n[DONE] -> {out}")
+        print(f"   Mode: Classic CV")
         print(f"   Cost: ${meta['cost_usd']} (~BDT {meta['cost_bdt']})")
     return meta
 

@@ -289,6 +289,17 @@
       font-weight: 500;
     }
 
+    .toggle-opt .toggle-hint {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .mode-badge {
+      font-size: 1.25rem;
+      line-height: 1;
+    }
+
     /* Process Button */
     .btn-process {
       background: var(--primary);
@@ -515,13 +526,34 @@
         <div>
           <div class="section-title">Background Color</div>
           <div class="toggle-group">
-            <div class="toggle-opt selected" data-value="blue">
+            <div class="toggle-opt bg-opt selected" data-value="blue">
               <span class="color-swatch swatch-blue"></span>
               <span class="toggle-label">Studio Blue</span>
             </div>
-            <div class="toggle-opt" data-value="white">
+            <div class="toggle-opt bg-opt" data-value="white">
               <span class="color-swatch swatch-white"></span>
               <span class="toggle-label">Pure White</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Processing Engine Toggle -->
+        <div>
+          <div class="section-title">Processing Engine</div>
+          <div class="toggle-group">
+            <div class="toggle-opt mode-opt selected" data-mode="studio">
+              <span class="mode-badge">✨</span>
+              <div>
+                <div class="toggle-label">AI Studio (FLUX)</div>
+                <div class="toggle-hint">Photorealistic • Preserves Jewelry & Details</div>
+              </div>
+            </div>
+            <div class="toggle-opt mode-opt" data-mode="classic">
+              <span class="mode-badge">⚙️</span>
+              <div>
+                <div class="toggle-label">Classic CV</div>
+                <div class="toggle-hint">BiRefNet + CodeFormer + CLAHE</div>
+              </div>
             </div>
           </div>
         </div>
@@ -576,7 +608,8 @@
     const fileName = document.getElementById('fileName');
     const fileSize = document.getElementById('fileSize');
     const removeFileBtn = document.getElementById('removeFileBtn');
-    const toggleOpts = document.querySelectorAll('.toggle-opt');
+    const bgOpts = document.querySelectorAll('.bg-opt');
+    const modeOpts = document.querySelectorAll('.mode-opt');
     const processBtn = document.getElementById('processBtn');
     const formSection = document.getElementById('formSection');
     const loadingSection = document.getElementById('loadingSection');
@@ -591,6 +624,7 @@
 
     let selectedFile = null;
     let selectedBg = 'blue';
+    let selectedMode = 'studio';
 
     // ── Drag & Drop ───────────────────────────────────────────────
     ['dragenter', 'dragover'].forEach(eventName => {
@@ -753,11 +787,20 @@
     }
 
     // ── Background Color Toggle ───────────────────────────────────
-    toggleOpts.forEach(opt => {
+    bgOpts.forEach(opt => {
       opt.addEventListener('click', () => {
-        toggleOpts.forEach(o => o.classList.remove('selected'));
+        bgOpts.forEach(o => o.classList.remove('selected'));
         opt.classList.add('selected');
         selectedBg = opt.dataset.value;
+      });
+    });
+
+    // ── Engine Mode Toggle ─────────────────────────────────────────
+    modeOpts.forEach(opt => {
+      opt.addEventListener('click', () => {
+        modeOpts.forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        selectedMode = opt.dataset.mode;
       });
     });
 
@@ -780,6 +823,7 @@
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('bg', selectedBg);
+      formData.append('mode', selectedMode);
 
       try {
         const startRes = await fetch('/process/start', {

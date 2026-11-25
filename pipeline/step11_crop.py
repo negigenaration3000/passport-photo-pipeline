@@ -24,37 +24,45 @@ EYE_FROM_TOP_RATIO = getattr(settings, "EYE_FROM_TOP_RATIO", 0.40)
 
 def crop(
     img:      Image.Image,
-    matte:    Image.Image,
-    face:     dict,
+    matte:    Image.Image | None,
+    face:     dict | object,
     bg_color: tuple = settings.BG_BLUE,
     target_w: int   = settings.PASSPORT_W_PX,
     target_h: int   = settings.PASSPORT_H_PX,
 ) -> Image.Image:
     """
-    Composite subject onto bg_color and crop to ICAO-compliant passport dimensions.
+    Composite subject onto bg_color (if matte is provided) and crop to ICAO-compliant passport dimensions.
 
-    img    — restored RGB portrait (Step 10 output)
-    matte  — RGBA alpha matte (Step 3/4 output)
-    face   — FaceAnalysis from Step 1 (provides bbox for crop geometry)
+    img    — restored or studio RGB portrait
+    matte  — RGBA alpha matte (Step 3/4 output), or None if already composited/studio
+    face   — FaceAnalysis or dict with bbox (x, y, w, h) for crop geometry
     """
     if not isinstance(img, Image.Image):
         raise TypeError("img must be a PIL.Image.Image")
-    if not isinstance(matte, Image.Image) or matte.mode != "RGBA":
-        raise TypeError("matte must be an RGBA PIL.Image.Image")
+    if matte is not None and (not isinstance(matte, Image.Image) or matte.mode != "RGBA"):
+        raise TypeError("matte must be an RGBA PIL.Image.Image or None")
 
-    # ── Composite onto solid background ──────────────────────────
-    bg = Image.new("RGBA", img.size, (*bg_color, 255))
-    bg.paste(img, mask=matte.split()[3])
-    composited = bg.convert("RGB")
+    # ── Composite onto solid background if matte is provided ─────
+    if matte is not None:
+        bg = Image.new("RGBA", img.size, (*bg_color, 255))
+        bg.paste(img, mask=matte.split()[3])
+        composited = bg.convert("RGB")
+    else:
+        composited = img.convert("RGB")
 
     # ── ICAO geometry: derive crop window from face bbox ──────────
     aspect   = target_w / target_h
-    crop_h   = int(face.h / HEAD_TARGET_RATIO)
+    face_w   = face.w if hasattr(face, "w") else face["w"]
+    face_h   = face.h if hasattr(face, "h") else face["h"]
+    face_x   = face.x if hasattr(face, "x") else face["x"]
+    face_y   = face.y if hasattr(face, "y") else face["y"]
+
+    crop_h   = int(face_h / HEAD_TARGET_RATIO)
     crop_w   = int(crop_h * aspect)
 
-    # Centre crop on face, eyes at 45% from top
-    face_cx  = face.x + face.w // 2
-    face_cy  = face.y + face.h // 2
+    # Centre crop on face, eyes at EYE_FROM_TOP_RATIO from top
+    face_cx  = face_x + face_w // 2
+    face_cy  = face_y + face_h // 2
     eye_offset = int(crop_h * EYE_FROM_TOP_RATIO)
 
     top    = face_cy - eye_offset

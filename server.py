@@ -22,10 +22,14 @@ INDEX_HTML = TEMPLATES_DIR / "index.html"
 JOBS: dict[str, dict] = {}
 
 
-def _prepare_job_paths(file: UploadFile, bg: str) -> tuple[str, str, Path, Path]:
+def _prepare_job_paths(file: UploadFile, bg: str, mode: str = "studio") -> tuple[str, str, str, Path, Path]:
     bg_choice = bg.lower().strip()
     if bg_choice not in ("blue", "white"):
         bg_choice = "blue"
+
+    mode_choice = mode.lower().strip()
+    if mode_choice not in ("studio", "classic"):
+        mode_choice = "studio"
 
     settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -44,7 +48,7 @@ def _prepare_job_paths(file: UploadFile, bg: str) -> tuple[str, str, Path, Path]
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {err}")
 
-    return job_id, bg_choice, upload_path, output_path
+    return job_id, bg_choice, mode_choice, upload_path, output_path
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -74,13 +78,15 @@ async def fetch_image(url: str = Query(..., description="External image URL to f
 def start_process_photo(
     file: UploadFile = File(...),
     bg: str = Form("blue"),
+    mode: str = Form("studio"),
 ):
-    job_id, bg_choice, upload_path, output_path = _prepare_job_paths(file, bg)
+    job_id, bg_choice, mode_choice, upload_path, output_path = _prepare_job_paths(file, bg, mode)
     event_queue: queue.Queue = queue.Queue()
     JOBS[job_id] = {
         "queue": event_queue,
         "output_path": output_path,
         "bg": bg_choice,
+        "mode": mode_choice,
         "status": "running",
     }
 
@@ -90,6 +96,7 @@ def start_process_photo(
                 image_path=upload_path,
                 output_path=output_path,
                 bg=bg_choice,
+                mode=mode_choice,
                 on_progress=lambda pct, msg: event_queue.put(
                     {"pct": pct, "msg": msg, "status": "running"}
                 ),
@@ -153,15 +160,17 @@ def get_process_result(job_id: str):
 def process_photo(
     file: UploadFile = File(...),
     bg: str = Form("blue"),
+    mode: str = Form("studio"),
 ):
-    _, bg_choice, upload_path, output_path = _prepare_job_paths(file, bg)
+    _, bg_choice, mode_choice, upload_path, output_path = _prepare_job_paths(file, bg, mode)
 
-    # Run 12-step passport pipeline
+    # Run passport pipeline
     try:
         process(
             image_path=upload_path,
             output_path=output_path,
             bg=bg_choice,
+            mode=mode_choice,
         )
         return FileResponse(
             path=output_path,
