@@ -540,19 +540,26 @@
         <!-- Processing Engine Toggle -->
         <div>
           <div class="section-title">Processing Engine</div>
-          <div class="toggle-group">
+          <div class="toggle-group" style="grid-template-columns: 1fr 1fr 1fr;">
             <div class="toggle-opt mode-opt selected" data-mode="studio">
               <span class="mode-badge">✨</span>
               <div>
                 <div class="toggle-label">AI Studio</div>
-                <div class="toggle-hint">Preserves exact identity, age & existing features</div>
+                <div class="toggle-hint">Preserves identity & features</div>
+              </div>
+            </div>
+            <div class="toggle-opt mode-opt" data-mode="comfyui">
+              <span class="mode-badge">🔌</span>
+              <div>
+                <div class="toggle-label">ComfyUI</div>
+                <div class="toggle-hint">BiRefNet + InstantID + Relight</div>
               </div>
             </div>
             <div class="toggle-opt mode-opt" data-mode="classic">
               <span class="mode-badge">⚙️</span>
               <div>
                 <div class="toggle-label">Classic CV</div>
-                <div class="toggle-hint">BiRefNet + CodeFormer + CLAHE</div>
+                <div class="toggle-hint">Local fallback stack</div>
               </div>
             </div>
           </div>

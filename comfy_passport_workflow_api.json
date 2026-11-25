@@ -1,0 +1,145 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "input_portrait.jpg",
+      "upload": "image"
+    }
+  },
+  "2": {
+    "class_type": "BiRefNet_Loader",
+    "inputs": {
+      "model": "BiRefNet-general-epoch_244.pth"
+    }
+  },
+  "3": {
+    "class_type": "BiRefNet_Segment",
+    "inputs": {
+      "birefnet_model": ["2", 0],
+      "image": ["1", 0],
+      "threshold": 0.5
+    }
+  },
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "sdxl_vae.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "InstantIDModelLoader",
+    "inputs": {
+      "instantid_file": "ip-adapter_instant_id_sdxl.bin"
+    }
+  },
+  "7": {
+    "class_type": "ControlNetLoader",
+    "inputs": {
+      "control_net_name": "control_instant_id_sdxl.safetensors"
+    }
+  },
+  "8": {
+    "class_type": "InsightFaceLoader",
+    "inputs": {
+      "provider": "CUDA"
+    }
+  },
+  "9": {
+    "class_type": "ApplyInstantID",
+    "inputs": {
+      "instantid": ["6", 0],
+      "insightface": ["8", 0],
+      "control_net": ["7", 0],
+      "image": ["1", 0],
+      "model": ["4", 0],
+      "positive": ["13", 0],
+      "negative": ["14", 0],
+      "weight": 0.85,
+      "start_at": 0.0,
+      "end_at": 1.0
+    }
+  },
+  "10": {
+    "class_type": "SolidColorCanvas",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "red": 24,
+      "green": 104,
+      "blue": 183
+    }
+  },
+  "11": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": ["10", 0],
+      "source": ["1", 0],
+      "mask": ["3", 1],
+      "x": 0,
+      "y": 0,
+      "resize_source": false
+    }
+  },
+  "12": {
+    "class_type": "ICLightModelLoader",
+    "inputs": {
+      "model_name": "iclight_sd15_fbc.safetensors"
+    }
+  },
+  "13": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["4", 1],
+      "text": "official studio passport photo, authentic facial likeness, real natural skin pores, clear iris, sharp eyes, soft diffused two-point studio front key lighting, even clean illumination, sharp focus, 8k resolution, raw photo"
+    }
+  },
+  "14": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["4", 1],
+      "text": "altered identity, wrong age, fake piercings, cartoon, CGI, plastic skin, blurry, overexposed, dark shadows, vignette, side lighting, zombie eyes, deformed, extra fingers"
+    }
+  },
+  "15": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["11", 0],
+      "vae": ["5", 0]
+    }
+  },
+  "16": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["9", 0],
+      "positive": ["9", 1],
+      "negative": ["9", 2],
+      "latent_image": ["15", 0],
+      "seed": 42,
+      "steps": 25,
+      "cfg": 6.0,
+      "sampler_name": "dpmpp_2m_sde_gpu",
+      "scheduler": "karras",
+      "denoise": 0.35
+    }
+  },
+  "17": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["16", 0],
+      "vae": ["5", 0]
+    }
+  },
+  "18": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "passport_studio_output",
+      "images": ["17", 0]
+    }
+  }
+}

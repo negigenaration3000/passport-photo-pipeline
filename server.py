@@ -28,7 +28,7 @@ def _prepare_job_paths(file: UploadFile, bg: str, mode: str = "studio") -> tuple
         bg_choice = "blue"
 
     mode_choice = mode.lower().strip()
-    if mode_choice not in ("studio", "classic"):
+    if mode_choice not in ("studio", "classic", "comfyui"):
         mode_choice = "studio"
 
     settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

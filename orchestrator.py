@@ -120,6 +120,68 @@ def process(
     raw = _cap_resolution(Image.open(image_path).convert("RGB"))
 
     # ══════════════════════════════════════════════════════════════
+    # MODE C: ComfyUI (BiRefNet + InstantID + IC-Light Backend)
+    # ══════════════════════════════════════════════════════════════
+    if mode == "comfyui":
+        from pipeline.comfy_client import ComfyUIClient
+        client = ComfyUIClient()
+
+        # Check if ComfyUI is online
+        if not client.is_alive():
+            print(f"[orchestrator] ComfyUI instance at {client.base_url} is unreachable.")
+            raise ConnectionError(
+                f"ComfyUI server is not running at {client.base_url}. "
+                "Start ComfyUI or set COMFYUI_URL in your .env to your GPU endpoint."
+            )
+
+        report(10, "[1/3] Aligning portrait & sending to ComfyUI...")
+        aligned = align(raw)
+        
+        # Save temporary aligned image for upload
+        temp_input = Path(settings.UPLOAD_DIR) / f"comfy_in_{Path(image_path).name}"
+        aligned.save(temp_input, quality=98)
+
+        report(25, "[2/3] Executing ComfyUI (BiRefNet + InstantID + Studio Relight)...")
+        studio_img = client.generate(temp_input, bg=bg, on_progress=on_progress)
+
+        report(85, "[3/3] Framing & cropping to ICAO spec (35x45mm @ 300 DPI)...")
+        face = analyse(np.array(studio_img))
+        if face is None:
+            face = analyse(np.array(aligned))
+        if face is None:
+            raise RuntimeError("Face not detected — cannot crop to ICAO spec.")
+
+        passport = crop(studio_img, matte=None, face=face, bg_color=bg_color)
+
+        if tile_output:
+            report(95, "Tiling on A4...")
+            out = tile(passport, output_path)
+        else:
+            out = Path(output_path)
+            passport.save(out, dpi=(settings.DPI, settings.DPI), quality=97)
+
+        if on_progress is not None:
+            on_progress(100, "Complete!")
+
+        cost = 0.005  # Estimated compute cost per photo on serverless ComfyUI
+        meta = {
+            "output":      str(out),
+            "cost_usd":    round(cost, 4),
+            "cost_bdt":    round(cost * 110, 2),
+            "lum_delta":   0.0,
+            "tilt_deg":    getattr(face, "tilt_deg", 0.0),
+            "enhanced":    True,
+            "mode":        "comfyui",
+        }
+        try:
+            print(f"\n✅ Done → {out}")
+            print(f"   Mode: ComfyUI (BiRefNet + InstantID + IC-Light)")
+            print(f"   Cost: ${meta['cost_usd']} (~৳{meta['cost_bdt']})")
+        except UnicodeEncodeError:
+            print(f"\n[DONE] -> {out}")
+        return meta
+
+    # ══════════════════════════════════════════════════════════════
     # MODE A: AI Studio (High-Fidelity Identity Preservation)
     # ══════════════════════════════════════════════════════════════
     if mode == "studio":
