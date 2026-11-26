@@ -21,7 +21,7 @@ class OrchestratorStudioModeTests(unittest.TestCase):
             self.output_path.unlink()
 
     @patch("orchestrator.analyse")
-    @patch("orchestrator._studio_enhance_flux")
+    @patch("orchestrator._studio_enhance_qwen")
     def test_studio_mode_flow(self, mock_enhance, mock_analyse):
         # Return a synthetic portrait and face detection
         mock_enhance.return_value = Image.new("RGB", (400, 500), (24, 104, 183))
@@ -40,7 +40,7 @@ class OrchestratorStudioModeTests(unittest.TestCase):
         )
 
         self.assertEqual(meta["mode"], "studio")
-        self.assertEqual(meta["cost_usd"], 0.04)
+        self.assertEqual(meta["cost_usd"], 0.03)
         self.assertTrue(self.output_path.is_file())
         self.assertTrue(len(progress_events) >= 4)
         self.assertEqual(progress_events[-1][0], 100)
@@ -51,7 +51,7 @@ class OrchestratorStudioModeTests(unittest.TestCase):
 
     @patch("orchestrator.tile")
     @patch("orchestrator.analyse")
-    @patch("orchestrator._studio_enhance_flux")
+    @patch("orchestrator._studio_enhance_qwen")
     def test_studio_mode_tile(self, mock_enhance, mock_analyse, mock_tile):
         mock_enhance.return_value = Image.new("RGB", (400, 500), (24, 104, 183))
         mock_analyse.return_value = FaceAnalysis(x=100, y=100, w=200, h=250, tilt_deg=0.0)

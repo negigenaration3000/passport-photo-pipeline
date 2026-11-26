@@ -44,14 +44,13 @@ def _cap_resolution(
     return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
 
-def _studio_enhance_flux(
+def _studio_enhance_qwen(
     image: Image.Image,
     bg: str = "blue",
 ) -> Image.Image:
     """
-    Enhance portrait, studio lighting, and solid background using high-fidelity
-    image-to-image edit with strict identity preservation (fal.ai nano-banana/edit).
-    Falls back to flux-pro/kontext if nano-banana is unavailable.
+    Enhance portrait, studio lighting, and solid background using open-weight
+    Qwen-Image-Edit (fal-ai/qwen-image-edit-2511) with strict identity preservation.
     """
     import io
     import requests
@@ -59,9 +58,9 @@ def _studio_enhance_flux(
 
     image_url = fal_client.upload_image(image)
     bg_desc = (
-        "pristine solid studio blue background RGB(24, 104, 183)"
+        "pristine flat solid studio blue background RGB(24, 104, 183) with zero gradients or vignettes"
         if bg == "blue"
-        else "pristine solid clean studio white background RGB(255, 255, 255)"
+        else "pristine flat solid clean studio white background RGB(255, 255, 255) with zero gradients"
     )
     prompt = (
         "An official high-resolution studio passport photo of this exact person. "
@@ -72,14 +71,35 @@ def _studio_enhance_flux(
     )
 
     endpoints = [
-        ("fal-ai/nano-banana/edit", {"prompt": prompt, "image_urls": [image_url]}),
-        ("fal-ai/flux-pro/kontext", {"prompt": prompt, "image_url": image_url}),
+        (
+            "fal-ai/qwen-image-edit-2511",
+            {
+                "prompt": prompt,
+                "image_urls": [image_url],
+                "num_inference_steps": 28,
+                "guidance_scale": 4.5,
+            },
+        ),
+        (
+            "fal-ai/qwen-image-edit-2509",
+            {
+                "prompt": prompt,
+                "image_urls": [image_url],
+            },
+        ),
+        (
+            "fal-ai/qwen-image-edit",
+            {
+                "prompt": prompt,
+                "image_urls": [image_url],
+            },
+        ),
     ]
 
     last_err = None
     for endpoint, args in endpoints:
         try:
-            print(f"[orchestrator] Enhancing via {endpoint}...")
+            print(f"[orchestrator] Enhancing via Qwen Image Edit ({endpoint})...")
             res = fal_client.subscribe(endpoint, arguments=args, with_logs=False)
             images = res.get("images")
             if images and images[0].get("url"):
@@ -90,7 +110,11 @@ def _studio_enhance_flux(
             print(f"[orchestrator] Warning: {endpoint} failed ({err}), trying fallback...")
             last_err = err
 
-    raise RuntimeError(f"AI studio enhancement failed on all endpoints: {last_err}")
+    raise RuntimeError(f"Qwen AI studio enhancement failed on all endpoints: {last_err}")
+
+
+# Backward compatibility alias
+_studio_enhance_flux = _studio_enhance_qwen
 
 
 def process(
@@ -101,13 +125,14 @@ def process(
     fidelity:    float = 0.95,
     tile_output: bool = False,
     on_progress: Optional[Callable[[int, str], None]] = None,
-    mode:        str  = "studio",   # "studio" (FLUX Kontext) | "classic" (12-step CV)
+    mode:        str  = "studio",   # "studio" (Qwen-Image-Edit) | "classic" (12-step CV) | "comfyui"
 ) -> dict:
     """
     Passport photo pipeline.
     Modes:
-      - "studio": Next-gen FLUX.1 [pro] Kontext via fal.ai (preserves identity, jewelry, clothing, studio lighting & solid BG).
+      - "studio": Next-gen open-weight Qwen-Image-Edit via fal.ai (preserves identity, jewelry, clothing, studio lighting & solid BG).
       - "classic": 12-step CV pipeline (BiRefNet + CLAHE + CodeFormer).
+      - "comfyui": Local/serverless GPU backend (BiRefNet + InstantID + IC-Light).
     """
     def report(pct: int, msg: str) -> None:
         print(msg)
@@ -182,16 +207,16 @@ def process(
         return meta
 
     # ══════════════════════════════════════════════════════════════
-    # MODE A: AI Studio (High-Fidelity Identity Preservation)
+    # MODE A: Qwen AI Studio (High-Fidelity Identity Preservation)
     # ══════════════════════════════════════════════════════════════
     if mode == "studio":
         # ── Step 1: Tilt alignment & detection ────────────────────
         report(15, "[1/4] Aligning portrait & face detection...")
         aligned = align(raw)
 
-        # ── Step 2: AI Studio Enhancement ─────────────────────────
-        report(35, "[2/4] Generating AI Studio portrait with identity preservation...")
-        studio_img = _studio_enhance_flux(aligned, bg=bg)
+        # ── Step 2: Qwen AI Studio Enhancement ────────────────────
+        report(35, "[2/4] Generating Qwen AI Studio portrait with identity preservation...")
+        studio_img = _studio_enhance_qwen(aligned, bg=bg)
 
         # ── Step 3: Face geometry for ICAO crop ───────────────────
         report(75, "[3/4] Analysing face geometry for ICAO compliance...")
@@ -216,7 +241,7 @@ def process(
         if on_progress is not None:
             on_progress(100, "Complete!")
 
-        cost = 0.04  # Studio model flat rate (~$0.04/image)
+        cost = 0.03  # Qwen-Image-Edit rate (~$0.03/image)
         meta = {
             "output":      str(out),
             "cost_usd":    round(cost, 4),
@@ -225,14 +250,15 @@ def process(
             "tilt_deg":    getattr(face, "tilt_deg", 0.0),
             "enhanced":    True,
             "mode":        "studio",
+            "engine":      "qwen",
         }
         try:
             print(f"\n✅ Done → {out}")
-            print(f"   Mode: AI Studio")
+            print(f"   Mode: Qwen AI Studio (Qwen-Image-Edit)")
             print(f"   Cost: ${meta['cost_usd']} (~৳{meta['cost_bdt']})")
         except UnicodeEncodeError:
             print(f"\n[DONE] -> {out}")
-            print(f"   Mode: AI Studio")
+            print(f"   Mode: Qwen AI Studio (Qwen-Image-Edit)")
             print(f"   Cost: ${meta['cost_usd']} (~BDT {meta['cost_bdt']})")
         return meta
 
